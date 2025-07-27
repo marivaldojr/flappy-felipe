@@ -155,6 +155,9 @@
     let lastTime = 0; // Variável para controlar o tempo entre frames
     let textAnimationTime = 0; // Variável para a animação do texto
     const splashStartTime = Date.now(); // Grava o tempo de início do carregamento
+    let gameSpeedMultiplier; // NEW: Multiplier for game speed
+    const MAX_SPEED_MULTIPLIER = 2.0; // NEW: Maximum speed multiplier
+    const SPEED_INCREMENT_PER_SCORE = 0.01; // NEW: How much speed increases per point
 
     // --- Carregamento de Recursos (Imagens e Sons) ---
     const characterImage = new Image();
@@ -172,7 +175,7 @@
         jumpSound,
         gameOverSound
     };
-    
+
     // Configura as fontes e crossOrigin
     assets.characterImage.src = 'character.png';
     assets.characterHitImage.src = 'character-hit.png';
@@ -192,7 +195,7 @@
                 asset.addEventListener('canplaythrough', () => resolve(asset), { once: true });
                 asset.addEventListener('error', (err) => {
                     console.error("Erro a carregar áudio:", asset.src);
-                    resolve(asset); 
+                    resolve(asset);
                 }, { once: true });
             }
         });
@@ -224,7 +227,7 @@
             startGameLogic();
         }
     }
-    
+
     // Configurações do jogo
     const birdProps = {
         x: 50,
@@ -239,7 +242,7 @@
         width: 50,
         height: 50,
         gap: 220,
-        speed: 3,
+        initialSpeed: 3, // Changed to initialSpeed
         frequency: 90 // Valor padrão, será ajustado
     };
 
@@ -267,7 +270,7 @@
         const drawHeight = imgHeight * scale;
         const drawX = (canvasWidth - drawWidth) / 2;
         const drawY = (canvasHeight - drawHeight) / 2;
-        
+
         ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
     }
 
@@ -281,6 +284,7 @@
     resizeCanvas();
 
     let frameCount = 0;
+    let backgroundX = 0; // Initialize backgroundX
 
     function setup() {
         setObstacleFrequency();
@@ -296,6 +300,7 @@
         gameState = 'intro';
         scoreDisplay.style.display = 'none';
         gameOverMessage.style.display = 'none';
+        gameSpeedMultiplier = 1.0; // NEW: Reset multiplier on setup
         draw();
     }
 
@@ -316,7 +321,9 @@
     }
 
     function update(deltaTime) {
-        backgroundX -= (obstacleProps.speed / 2) * 60 * deltaTime;
+        const currentSpeed = obstacleProps.initialSpeed * gameSpeedMultiplier; // NEW: Apply multiplier
+        backgroundX -= (currentSpeed / 2) * 60 * deltaTime; // Background moves with half speed
+
         bird.velocity += birdProps.gravity * 60 * deltaTime;
         bird.y += bird.velocity * 60 * deltaTime;
 
@@ -327,7 +334,7 @@
         }
 
         for (let i = obstacles.length - 1; i >= 0; i--) {
-            obstacles[i].x -= obstacleProps.speed * 60 * deltaTime;
+            obstacles[i].x -= currentSpeed * 60 * deltaTime; // NEW: Apply multiplier
             if (obstacles[i].x + obstacleProps.width < 0) {
                 obstacles.splice(i, 1);
             }
@@ -338,6 +345,8 @@
                 obstacles[i].passed = true;
                 score++;
                 scoreDisplay.textContent = score;
+                // NEW: Increase speed multiplier when score increases
+                gameSpeedMultiplier = Math.min(MAX_SPEED_MULTIPLIER, gameSpeedMultiplier + SPEED_INCREMENT_PER_SCORE);
             }
         }
 
@@ -345,13 +354,13 @@
             endGame();
         }
     }
-    
+
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
+
         if (gameState === 'intro') {
             drawCoverImage(ctx, introImage);
-            
+
             const titleFontSize = canvas.width / 12;
             const titleY = canvas.height * 0.15;
             const bannerHeight = (titleFontSize * 2) + 40;
@@ -362,17 +371,17 @@
 
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            
+
             ctx.fillStyle = '#FFFFFF';
             ctx.shadowColor = 'black';
             ctx.shadowOffsetX = 2;
             ctx.shadowOffsetY = 2;
             ctx.shadowBlur = 0;
-            
+
             ctx.font = `${titleFontSize}px 'Press Start 2P'`;
             ctx.fillText('Flappy', canvas.width / 2, titleY - titleFontSize * 0.6);
             ctx.fillText('Felipinho', canvas.width / 2, titleY + titleFontSize * 0.6);
-            
+
             const instructionY = canvas.height * 0.90;
             const baseInstructionFontSize = canvas.width / 25;
             const fontAnimation = Math.sin(textAnimationTime) * 1.5;
@@ -385,12 +394,12 @@
             ctx.shadowOffsetY = 0;
             return;
         }
-        
+
         const bgImg = gameBackgroundImage;
         if (bgImg.naturalWidth > 0) {
             const scale = canvas.height / bgImg.naturalHeight;
             const scaledWidth = bgImg.naturalWidth * scale;
-            
+
             if (backgroundX <= -scaledWidth) {
                 backgroundX = 0;
             }
@@ -410,7 +419,7 @@
                 ctx.drawImage(sheepImage, obs.x, y, obstacleProps.width, obstacleProps.height);
             }
         }
-        
+
         if (gameState === 'playing') {
             const size = bird.radius * 2.5;
             const x = bird.x - size / 2;
@@ -448,7 +457,7 @@
         scoreDisplay.style.display = 'block';
         performJump(); // Primeiro salto
     }
-    
+
     function endGame() {
         if (gameState === 'over') return;
         gameState = 'over';
@@ -472,7 +481,7 @@
         const birdTop = bird.y - bird.radius;
         const birdBottom = bird.y + bird.radius;
         const obsRight = obs.x + obstacleProps.width;
-        
+
         if (birdRight > obs.x && birdLeft < obsRight) {
             const topPipeBottom = obs.y;
             const bottomPipeTop = obs.y + obstacleProps.gap;
