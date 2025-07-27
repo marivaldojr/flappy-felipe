@@ -1,0 +1,4 @@
+.idea
+
+# Ignore Windows Zone.Identifier files
+*:Zone.Identifier

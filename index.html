@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flappy Felipe</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #333;
+            font-family: 'Press Start 2P', cursive;
+            color: white;
+            text-align: center;
+            overflow: hidden;
+            /* Desativa comportamentos de toque padrão do navegador que podem causar piscar */
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            -khtml-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+        #game-container {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            height: 100%;
+            max-height: 600px;
+            background: #87CEEB; /* Cor do céu */
+            overflow: hidden;
+            border: 5px solid #333;
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+        #ui-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: none; /* Permite cliques através do container */
+        }
+        #splash-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #3d2a33;
+            z-index: 200;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+        }
+        #splash-screen img {
+            width: 120px;
+            height: 120px;
+            margin-bottom: 20px;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        #score {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 2rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            z-index: 10;
+        }
+        #game-over-message {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80%;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 10px;
+            display: none; /* Escondido por padrão */
+            flex-direction: column;
+            align-items: center;
+            box-sizing: border-box;
+        }
+        #game-over-message h1 {
+            margin: 0 0 10px 0;
+            font-size: 1.5rem;
+        }
+        #game-over-message p {
+            margin: 5px 0;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="splash-screen">
+        <img src="character.png" alt="A carregar...">
+        <p>A carregar...</p>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+    <div id="ui-container">
+        <div id="score">0</div>
+        <div id="game-over-message">
+            <h1>Fim de Jogo</h1>
+            <p>Pontuação: <span id="final-score">0</span></p>
+            <p>Recorde: <span id="final-high-score">0</span></p>
+            <p style="margin-top: 15px; font-size: 0.8rem;">Clique para jogar novamente</p>
+        </div>
+    </div>
+</div>
+
+<!-- Elementos de áudio -->
+<audio id="jumpSound" src="jump.wav" preload="auto"></audio>
+<audio id="gameOverSound" src="pain.mp3" preload="auto"></audio>
+
+<script>
+    // Seleciona os elementos do DOM
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const gameContainer = document.getElementById('game-container');
+    const splashScreen = document.getElementById('splash-screen');
+    const scoreDisplay = document.getElementById('score');
+    const gameOverMessage = document.getElementById('game-over-message');
+    const finalScoreDisplay = document.getElementById('final-score');
+    const finalHighScoreDisplay = document.getElementById('final-high-score');
+    const jumpSound = document.getElementById('jumpSound');
+    const gameOverSound = document.getElementById('gameOverSound');
+
+    let bird, obstacles, score, highScore, gameState;
+    let lastTime = 0; // Variável para controlar o tempo entre frames
+    let textAnimationTime = 0; // Variável para a animação do texto
+    const splashStartTime = Date.now(); // Grava o tempo de início do carregamento
+
+    // --- Carregamento de Recursos (Imagens e Sons) ---
+    const characterImage = new Image();
+    const characterHitImage = new Image();
+    const sheepImage = new Image();
+    const introImage = new Image();
+    const gameBackgroundImage = new Image();
+
+    const assets = {
+        characterImage,
+        characterHitImage,
+        sheepImage,
+        introImage,
+        gameBackgroundImage,
+        jumpSound,
+        gameOverSound
+    };
+    
+    // Configura as fontes e crossOrigin
+    assets.characterImage.src = 'character.png';
+    assets.characterHitImage.src = 'character-hit.png';
+    assets.sheepImage.src = 'shoulder.png';
+    assets.introImage.src = 'intro.png';
+    assets.gameBackgroundImage.src = 'fundo.jpeg';
+
+    function loadAsset(asset) {
+        return new Promise((resolve) => {
+            if (asset instanceof HTMLImageElement) {
+                asset.onload = () => resolve(asset);
+                asset.onerror = (err) => {
+                    console.error("Erro a carregar imagem:", asset.src);
+                    resolve(asset); // Resolve mesmo com erro para não bloquear o jogo
+                };
+            } else if (asset instanceof HTMLAudioElement) {
+                asset.addEventListener('canplaythrough', () => resolve(asset), { once: true });
+                asset.addEventListener('error', (err) => {
+                    console.error("Erro a carregar áudio:", asset.src);
+                    resolve(asset); 
+                }, { once: true });
+            }
+        });
+    }
+
+    Promise.all(Object.values(assets).map(loadAsset))
+        .then(() => {
+            onAllAssetsLoaded();
+        })
+        .catch(err => {
+            console.error("Falha crítica ao carregar um recurso essencial:", err);
+            onAllAssetsLoaded();
+        });
+
+
+    function onAllAssetsLoaded() {
+        const elapsedTime = Date.now() - splashStartTime;
+        const remainingTime = 3000 - elapsedTime;
+
+        const startGameLogic = () => {
+            splashScreen.style.display = 'none'; // Esconde a tela de splash
+            setup();
+            requestAnimationFrame(gameLoop); // Inicia o loop do jogo
+        };
+
+        if (remainingTime > 0) {
+            setTimeout(startGameLogic, remainingTime);
+        } else {
+            startGameLogic();
+        }
+    }
+    
+    // Configurações do jogo
+    const birdProps = {
+        x: 50,
+        y: 150,
+        radius: 20,
+        gravity: 0.4,
+        lift: -6, // Valor do salto diminuído
+        velocity: 0
+    };
+
+    const obstacleProps = {
+        width: 50,
+        height: 50,
+        gap: 220,
+        speed: 3,
+        frequency: 90 // Valor padrão, será ajustado
+    };
+
+    // --- Funções do Jogo ---
+    function setObstacleFrequency() {
+        if (window.innerWidth < 768) {
+            obstacleProps.frequency = 120;
+        } else {
+            obstacleProps.frequency = 90;
+        }
+    }
+
+    function drawCoverImage(ctx, img) {
+        const canvasWidth = ctx.canvas.width;
+        const canvasHeight = ctx.canvas.height;
+        const imgWidth = img.naturalWidth;
+        const imgHeight = img.naturalHeight;
+
+        if (imgWidth === 0 || imgHeight === 0) return;
+
+        const scaleX = canvasWidth / imgWidth;
+        const scaleY = canvasHeight / imgHeight;
+        const scale = Math.max(scaleX, scaleY);
+        const drawWidth = imgWidth * scale;
+        const drawHeight = imgHeight * scale;
+        const drawX = (canvasWidth - drawWidth) / 2;
+        const drawY = (canvasHeight - drawHeight) / 2;
+        
+        ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+    }
+
+    function resizeCanvas() {
+        canvas.width = gameContainer.clientWidth;
+        canvas.height = gameContainer.clientHeight;
+        setObstacleFrequency();
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    let frameCount = 0;
+
+    function setup() {
+        setObstacleFrequency();
+        bird = { ...birdProps, y: canvas.height / 2 };
+        obstacles = [];
+        score = 0;
+        scoreDisplay.textContent = score;
+        highScore = localStorage.getItem('flappyCarneirinhoHighScore') || 0;
+        frameCount = 0;
+        lastTime = 0;
+        textAnimationTime = 0;
+        backgroundX = 0;
+        gameState = 'intro';
+        scoreDisplay.style.display = 'none';
+        gameOverMessage.style.display = 'none';
+        draw();
+    }
+
+    function gameLoop(currentTime) {
+        if (lastTime === 0) {
+            lastTime = currentTime;
+        }
+        const deltaTime = (currentTime - lastTime) / 1000;
+        lastTime = currentTime;
+
+        if (gameState === 'playing') {
+            update(deltaTime);
+        } else if (gameState === 'intro') {
+            textAnimationTime += deltaTime * 4;
+        }
+        draw();
+        requestAnimationFrame(gameLoop);
+    }
+
+    function update(deltaTime) {
+        backgroundX -= (obstacleProps.speed / 2) * 60 * deltaTime;
+        bird.velocity += birdProps.gravity * 60 * deltaTime;
+        bird.y += bird.velocity * 60 * deltaTime;
+
+        frameCount++;
+        if (frameCount % obstacleProps.frequency === 0) {
+            const gapY = Math.random() * (canvas.height - obstacleProps.gap - 200) + 100;
+            obstacles.push({ x: canvas.width, y: gapY, passed: false });
+        }
+
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+            obstacles[i].x -= obstacleProps.speed * 60 * deltaTime;
+            if (obstacles[i].x + obstacleProps.width < 0) {
+                obstacles.splice(i, 1);
+            }
+            if (checkCollision(bird, obstacles[i])) {
+                endGame();
+            }
+            if (!obstacles[i].passed && obstacles[i].x < bird.x) {
+                obstacles[i].passed = true;
+                score++;
+                scoreDisplay.textContent = score;
+            }
+        }
+
+        if (bird.y + bird.radius > canvas.height || bird.y - bird.radius < 0) {
+            endGame();
+        }
+    }
+    
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        if (gameState === 'intro') {
+            drawCoverImage(ctx, introImage);
+            
+            const titleFontSize = canvas.width / 12;
+            const titleY = canvas.height * 0.15;
+            const bannerHeight = (titleFontSize * 2) + 40;
+            const bannerY = titleY - (bannerHeight / 2);
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.fillRect(0, bannerY, canvas.width, bannerHeight);
+
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            ctx.fillStyle = '#FFFFFF';
+            ctx.shadowColor = 'black';
+            ctx.shadowOffsetX = 2;
+            ctx.shadowOffsetY = 2;
+            ctx.shadowBlur = 0;
+            
+            ctx.font = `${titleFontSize}px 'Press Start 2P'`;
+            ctx.fillText('Flappy', canvas.width / 2, titleY - titleFontSize * 0.6);
+            ctx.fillText('Felipinho', canvas.width / 2, titleY + titleFontSize * 0.6);
+            
+            const instructionY = canvas.height * 0.90;
+            const baseInstructionFontSize = canvas.width / 25;
+            const fontAnimation = Math.sin(textAnimationTime) * 1.5;
+            const instructionFontSize = baseInstructionFontSize + fontAnimation;
+            ctx.font = `${instructionFontSize}px 'Press Start 2P'`;
+            ctx.fillText('Clique para Jogar', canvas.width / 2, instructionY);
+
+            ctx.shadowColor = 'transparent';
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
+            return;
+        }
+        
+        const bgImg = gameBackgroundImage;
+        if (bgImg.naturalWidth > 0) {
+            const scale = canvas.height / bgImg.naturalHeight;
+            const scaledWidth = bgImg.naturalWidth * scale;
+            
+            if (backgroundX <= -scaledWidth) {
+                backgroundX = 0;
+            }
+
+            ctx.drawImage(bgImg, backgroundX, 0, scaledWidth, canvas.height);
+            ctx.drawImage(bgImg, backgroundX + scaledWidth, 0, scaledWidth, canvas.height);
+        } else {
+             ctx.fillStyle = '#87CEEB';
+             ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        for (const obs of obstacles) {
+            for (let y = obs.y - obstacleProps.height; y > -obstacleProps.height; y -= obstacleProps.height) {
+                ctx.drawImage(sheepImage, obs.x, y, obstacleProps.width, obstacleProps.height);
+            }
+            for (let y = obs.y + obstacleProps.gap; y < canvas.height; y += obstacleProps.height) {
+                ctx.drawImage(sheepImage, obs.x, y, obstacleProps.width, obstacleProps.height);
+            }
+        }
+        
+        if (gameState === 'playing') {
+            const size = bird.radius * 2.5;
+            const x = bird.x - size / 2;
+            const y = bird.y - size / 2;
+            ctx.drawImage(characterImage, x, y, size, size);
+        } else if (gameState === 'over') {
+            const img = characterHitImage;
+            const scale = 0.56;
+            const w = img.naturalWidth * scale;
+            const h = img.naturalHeight * scale;
+            const x = canvas.width / 2 - w / 2;
+            const y = canvas.height / 2 - h / 2;
+            ctx.drawImage(img, x, y, w, h);
+        }
+    }
+
+    function performJump() {
+        bird.velocity = birdProps.lift;
+        jumpSound.currentTime = 0;
+        jumpSound.play().catch(error => {});
+    }
+
+    function flap() {
+        if (gameState === 'playing') {
+            performJump();
+        } else if (gameState === 'intro') {
+            startGame();
+        } else if (gameState === 'over') {
+            setTimeout(setup, 200);
+        }
+    }
+
+    function startGame() {
+        gameState = 'playing';
+        scoreDisplay.style.display = 'block';
+        performJump(); // Primeiro salto
+    }
+    
+    function endGame() {
+        if (gameState === 'over') return;
+        gameState = 'over';
+
+        gameOverSound.currentTime = 0;
+        gameOverSound.play().catch(error => {});
+
+        if (score > highScore) {
+            highScore = score;
+            localStorage.setItem('flappyCarneirinhoHighScore', highScore);
+        }
+        finalScoreDisplay.textContent = score;
+        finalHighScoreDisplay.textContent = highScore;
+        gameOverMessage.style.display = 'flex';
+        scoreDisplay.style.display = 'none';
+    }
+
+    function checkCollision(bird, obs) {
+        const birdLeft = bird.x - bird.radius;
+        const birdRight = bird.x + bird.radius;
+        const birdTop = bird.y - bird.radius;
+        const birdBottom = bird.y + bird.radius;
+        const obsRight = obs.x + obstacleProps.width;
+        
+        if (birdRight > obs.x && birdLeft < obsRight) {
+            const topPipeBottom = obs.y;
+            const bottomPipeTop = obs.y + obstacleProps.gap;
+            if (birdTop < topPipeBottom || birdBottom > bottomPipeTop) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Eventos de input
+    document.addEventListener('keydown', (e) => {
+        if (e.code === 'Space') { e.preventDefault(); flap(); }
+    });
+    document.addEventListener('mousedown', flap);
+    document.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        flap();
+    }, { passive: false });
+
+</script>
+
+</body>
+</html>
